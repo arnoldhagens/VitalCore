@@ -44,19 +44,16 @@ AgeGroups <- c()
 
 
 calculate_derivativVac <-function(t, x, vparameters){
-  #ncompartment <- 20            # number of compartments
   YearDays     <- 365.242199    # days in a year
-  DoNH <- TRUE
-
-  #cat(" Time: ",t,"\n")
+  DoNH <- TRUE                  # to enable nursing homes in the simulation
 
   # Vaccinated part
-  Sv    = as.matrix(x[1:nage])                # Susceptibles
+  Sv    = as.matrix(x[1:nage])                # Susceptible
   Iv    = as.matrix(x[(nage+1):(2*nage)])     # infectious
   Av    = as.matrix(x[(2*nage+1):(3*nage)])   # Asymptomatic
   Vhm    = as.matrix(x[(3*nage+1):(4*nage)])  # Vaccinated sick home
   Vin    = as.matrix(x[(4*nage+1):(5*nage)])  # Vaccinated sick outpatient
-  Vicu    = as.matrix(x[(5*nage+1):(6*nage)]) # Vaccinated sick inpatien
+  Vicu    = as.matrix(x[(5*nage+1):(6*nage)]) # Vaccinated sick inpatient
   Rv    = as.matrix(x[(6*nage+1):(7*nage)])   # Recovered vaccinated
 
   # non vaccinated part
@@ -270,7 +267,6 @@ calculate_derivativVac <-function(t, x, vparameters){
       }
 
     # Single death stock for all age groups and Nursing homes
-    #cat("CFR dif:",CFR,"\n")
     dD <-   StepSize * (
       (1/(Duration_In*(1-Vac_Los_Eff))*Vin)*(CFR*(1-Vac_CFR_Eff)) +
         (1/(Duration_Icu*(1-Vac_Los_Eff))*Vicu) *(CFR*(1-Vac_CFR_Eff)) +
