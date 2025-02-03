@@ -1,5 +1,5 @@
 Vital CORE dynamic model
-2022 - 2023
+2022 - 2025
 
 Built for the Vital Project. The VITAL project has received funding from the Innovative Medicines Initiative 2 Joint Undertaking (JU) under grant agreement No 806776. The JU receives support from the European Union’s Horizon 2020 research and innovation programme and EFPIA.
 
