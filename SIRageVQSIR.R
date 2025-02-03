@@ -1,12 +1,13 @@
 # Vital Base Model functions
 # An R script to solve ODE's of an SIR model with age structure
-# updated January 2023 for
+# updated January 2023 - February 2024 for
 #               - waning immunity
 #               - seasonal R
 #               - vacination system
 #               - Asymptomatic
 #               - Symptomatic Home, Outpatient and Inpatient
 #               - Nursing homes dynamics
+#               - periodical population growth
 #
 # by:          Arnold Hagens
 #              Groningen University
