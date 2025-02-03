@@ -1,6 +1,7 @@
 # Vital Model Base Model
 #
-# An R script to solve ODE's of an SIR model with age structure
+# An R script to solve ODE's of an SIR based model with age structure and nursing homes
+# Influenza
 # updated January 2024 for
 #               - waning immunity
 #               - seasonal R
@@ -13,6 +14,8 @@
 #              Groningen University
 #              arnoldjjhagens@gmail.com, a.j.j.hagens@umcg.nl
 #
+#
+#
 # Base package contains three files
 # 1. VitalBase.R                    R code to run
 # 2. SIRageVQSIR.R                  R code functions
@@ -22,7 +25,7 @@ library("readxl")
 source("SIRageVQSIR.R")
 
 # load parameters
-SimFile <- "VitalSimulation STABLEv3.xlsx"    #simulation file
+SimFile <- "VitalSimulationBase.xlsx"    #simulation file
 parameters <- as.data.frame(read_excel(SimFile, sheet = paste("Parameters_",DiseaseID=1,sep="")))  # read parameter
 BaselineParam(parameters,OSA=c(0,0))  # load parameters
 betaCalc()                            # calculate beta

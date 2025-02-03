@@ -16,7 +16,7 @@
 library("deSolve")
 
 
-# for cache Nursing Homes
+# Global variables for cache Nursing Homes
 Sirbeta <- 0
 Sirgamma <- 0
 SirS0 <- 0
@@ -41,11 +41,14 @@ Icum_0  <- rep(0, 10)
 NHdeaths_0 <- 0
 NHImmune_0 <- 0
 AgeGroups <- c()
+Prev_t <-0
 
 
 calculate_derivativVac <-function(t, x, vparameters){
-  YearDays     <- 365.242199    # days in a year
-  DoNH <- TRUE                  # to enable nursing homes in the simulation
+
+  if(Nursing_enabled==1) {DoNH <- TRUE} else {
+    DoNH<-FALSE
+    CFR <- CFR_withNH}          # adjust CFR rate to include elderly in NH
 
   # Vaccinated part
   Sv    = as.matrix(x[1:nage])                # Susceptible
@@ -91,21 +94,20 @@ calculate_derivativVac <-function(t, x, vparameters){
     # and dS, dI, and dR
 
     # helper variables
-    N       <- Sv+Iv+Av+Vhm+Vin+Vicu+Rv + S+I+An+Nhm+Nin+Nicu+R + D   # total N
-    Nalive  <- Sv+Iv+Av+Vhm+Vin+Vicu+Rv + S+I+An+Nhm+Nin+Nicu+R       # total individuals alive
 
+    Nalive  <- Sv+Iv+Av+Vhm+Vin+Vicu+Rv + S+I+An+Nhm+Nin+Nicu+R       # total individuals alive
+    N       <- Nalive + D   # total N
 
     # periodical booster vaccination moment
     real_t <- t*StepSize                           # the real time due to step size
-    nn   <- c(0,0,0,0,0,0,0,0,0,0)                 # define day matrix first year vac
-    dVavS <-c(0,0,0,0,0,0,0,0,0,0)
-    dVavR <-c(0,0,0,0,0,0,0,0,0,0)
-    dVavRv <-c(0,0,0,0,0,0,0,0,0,0)
-    dVavAv <-c(0,0,0,0,0,0,0,0,0,0)
-    dVavAn <-c(0,0,0,0,0,0,0,0,0,0)
+    nn     <- rep(0,10)
+    dVavS  <- rep(0,10)
+    dVavR  <- rep(0,10)
+    dVavRv <- rep(0,10)
+    dVavAv <- rep(0,10)
+    dVavAn <- rep(0,10)
 
     dt   <- as.Date(real_t, origin = StartDate)
-
 
     Yr   <- floor(as.numeric(format(dt,'%Y')))     # real year count
 
@@ -133,6 +135,7 @@ calculate_derivativVac <-function(t, x, vparameters){
       VC <-  1-(VC^(1/(Vac_speed)))   #  day vaccination period
 
       dVavS <- S*VC*nn        # part that moves per day from S to Sv (vaccinated persons)
+
       dVavR <- R*VC*nn        # part that is vaccianted per day from R to Sv (vaccinated persons) no move
       dVavRv <- Rv*VC*nn        # part that vaccinated per day from Rv to Sv (vaccinated persons) no move
       dVavAv <- Av*VC*nn        # part that vaccinated per day from Av to Sv (vaccinated persons) no move
@@ -140,20 +143,21 @@ calculate_derivativVac <-function(t, x, vparameters){
 
     }
 
-    dV <- dVavS + dVavR + dVavRv  +dVavAv+dVavAn    # log the vaccinations sunk stock (cumulative vaccinations)
+    dV <- dVavS + dVavR + dVavRv + dVavAv + dVavAn    # log the vaccinations sunk stock (cumulative vaccinations)
 
-    # no moves due to vaccination (only costs)
+    # no moves due to vaccination (only costs) since natueral acquired immunity is preferred
     dVavR <- 0
     dVavRv <- 0
     dVavAn <- 0
     dVavAv <-0
 
+    #cospi(180/365*2)+1
 
     # seasonal effect on R and beta value after callibration
     s      <- cospi(real_t/YearDays*2)+1   # AH changed from -sinpi  to adjust for yearly variations
     betaS  <- beta * (s*SeasonA + SeasonB)
 
-    #Demographic Change
+    #Demographic Change per year for a day
     DemoChange <- c(0+(NetMigrationRate[1]-MortalityRate[1])*Nalive[1]-Nalive[1]/Pop_groupwidth[1],
                     Nalive[1]/Pop_groupwidth[1]-Nalive[2]/Pop_groupwidth[2]+(NetMigrationRate[2]-MortalityRate[2])*Nalive[2],
                     Nalive[2]/Pop_groupwidth[2]-Nalive[3]/Pop_groupwidth[3]+(NetMigrationRate[3]-MortalityRate[3])*Nalive[3],
@@ -164,34 +168,60 @@ calculate_derivativVac <-function(t, x, vparameters){
                     Nalive[7]/Pop_groupwidth[7]-Nalive[8]/Pop_groupwidth[8]+(NetMigrationRate[8]-MortalityRate[8])*Nalive[8],
                     Nalive[8]/Pop_groupwidth[8]-Nalive[9]/Pop_groupwidth[9]+(NetMigrationRate[9]-MortalityRate[9])*Nalive[9],
                     Nalive[9]/Pop_groupwidth[9]+(NetMigrationRate[10]-MortalityRate[10])*Nalive[10])
-    DemoChange <- DemoChange/YearDays
-    DemoRatio  <- ((DemoChange+Nalive)/Nalive)-1
-    BirthsSusceptible <-c(BirthRate*sum(Nalive)/YearDays,0,0,0,0,0,0,0,0,0)   # new individuals arrive only to Susceptible compartment
+
+
+    # by day
+    DemoRatio <- rep(0, 10)
+    BirthsSusceptible <- rep(0, 10)
+
+    if (Pop_growth_step == 0) {
+        DemoChange <- DemoChange / YearDays
+        DemoRatio  <- ((DemoChange + Nalive) / Nalive) - 1
+        BirthsSusceptible <-
+          c(BirthRate * sum(Nalive) / YearDays, 0, 0, 0, 0, 0, 0, 0, 0, 0)   # new individuals arrive only to Susceptible compartment
+    } else
+    {
+      tf <- floor(t / Pop_growth_step)
+      if (tf != Prev_t) {
+        DemoChange <- DemoChange / YearDays
+        DemoRatio  <- ((DemoChange + Nalive) / Nalive) - 1
+        DemoRatio <- (1 + DemoRatio) ^ Pop_growth_step - 1
+
+        BD <- (1 + BirthRate / YearDays) ^ Pop_growth_step - 1
+        BirthsSusceptible <-
+          c(BD * sum(Nalive), 0, 0, 0, 0, 0, 0, 0, 0, 0)   # new individuals arrive only to Susceptible compartment
+        Prev_t <<- tf
+      }
+    }
 
 
     # Differentials
-    dSv   = StepSize *
-      ((-as.matrix((1-Vac_Inf_Eff)*Sv*betaS)*(as.matrix(C)%*%as.matrix(((1-Vac_Inf_Eff)*Iv+I)/Nalive))
-        +dVavS + dVavR +dVavRv +dVavAn+dVavAv- Wiv*Sv) + Sv * DemoRatio)
 
-    dIcum = StepSize *
-      (as.matrix((1 - Vac_Inf_Eff) * Sv * betaS) * (as.matrix(C) %*% as.matrix(((1 - Vac_Inf_Eff) * Iv + I) / Nalive)))+
-      StepSize *
-      ((as.matrix(S*betaS)*(as.matrix(C)%*%as.matrix((I+(1-Vac_Inf_Eff)*Iv)/Nalive)) ) )
+    # Incidence from Susceptible and Susceptible Vaccinated
+    Inc_Sv <- as.matrix((1-Vac_Inf_Eff)*Sv*betaS)*(as.matrix(C)%*%as.matrix(((1-Vac_Inf_Eff)*Iv+I)/Nalive))
+    Inc_S  <- as.matrix(S*betaS)*(as.matrix(C)%*%as.matrix((I+(1-Vac_Inf_Eff)*Iv)/Nalive))
 
-    dIv   = StepSize *
-      ((as.matrix((1-Vac_Inf_Eff)*Sv*betaS)*(as.matrix(C)%*%as.matrix(((1-Vac_Inf_Eff)*Iv+I)/Nalive))
-                         - gamma*as.matrix(Iv))+ Iv *DemoRatio)
+    # Forensics 1 ####
+    #new_row <- data.frame(time=t, betaS = betaS)
+    #write.table(new_row, "forensics.csv", sep = ",", col.names = FALSE, row.names = FALSE, append = TRUE)
+
+    dSv   = StepSize * ((-Inc_Sv
+                                + dVavS + dVavR +dVavRv +dVavAn+dVavAv- Wiv*Sv) +
+                          Sv * DemoRatio)
+
+    dIcum = StepSize * (Inc_Sv + Inc_S)
+
+    dIv   = StepSize *((Inc_Sv - gamma*as.matrix(Iv))+ Iv *DemoRatio)
 
     dAv   = StepSize * (
       (gamma*Iv * (1-Frac_Sympt) - 1/Duration_Asympt*Av - dVavAv)
       + Av * DemoRatio)
 
-    dVhm  = StepSize * (
-      (gamma*Iv * Frac_Sympt
-       * (Frac_Home + (1-Frac_Home)*Vac_Hosp_Eff)
-       - Vhm/(Duration_Home*(1-Vac_Los_Eff)))
-       + Vhm * DemoRatio)
+    dVhm  = gamma*Iv * Frac_Sympt *
+      (Frac_Home + (1-Frac_Home)*Vac_Hosp_Eff) -
+      Vhm/(Duration_Home*(1-Vac_Los_Eff))
+       + Vhm * DemoRatio
+
     dVin = StepSize * ((gamma*Iv * Frac_Sympt * Frac_In *(1-Vac_Hosp_Eff)
             - Vin/(Duration_In*(1-Vac_Los_Eff)))+ Vin * DemoRatio)
     dVicu  = StepSize * ((gamma*Iv * Frac_Sympt * Frac_Icu *(1-Vac_Hosp_Eff)
@@ -211,11 +241,11 @@ calculate_derivativVac <-function(t, x, vparameters){
 
     # differentials non-vaccinated
     dS    = StepSize *
-                ((-as.matrix(S*betaS)*(as.matrix(C)%*%as.matrix((I+(1-Vac_Inf_Eff)*Iv)/Nalive)) -
+                ((-Inc_S -
                 dVavS + Wii*(R+Rv) + Wiv*Sv) +
                 S * DemoRatio +BirthsSusceptible)
     dI    = StepSize *
-                ((as.matrix(S*betaS)*(as.matrix(C)%*%as.matrix((I+(1-Vac_Inf_Eff)*Iv)/Nalive)) -
+                ((Inc_S -
                gamma*as.matrix(I)) + I * DemoRatio)
 
     dAn   = StepSize *((gamma*I * (1-Frac_Sympt) - An/Duration_Asympt - dVavAn)+An * DemoRatio)
@@ -243,19 +273,24 @@ calculate_derivativVac <-function(t, x, vparameters){
       # R0 is the reproduction rate for naive and unvaccinated population
       # vaccination assumes that vaccinated cannot get infected according to effectiveness average of agegroup 8,9,10
       R0adjusted  <- Nursing_R0 * (1-Nursing_uptake* mean(Vac_Inf_Eff[8:10]))   # adjust R0 for uptake NursingR0*(1-uptake*VacEff)
+      #cat("R0_adjusted: ",R0adjusted,"\n")
+
+      # Forensics 1 ####
+      #new_row <- data.frame(time=t, R0adjusted = R0adjusted)
+      #write.table(new_row, "forensicsNH.csv", sep = ",", col.names = FALSE, row.names = FALSE, append = TRUE)
 
       # get Nursing attack results deaths and immune centers
-      Nat <- NH_Attack2(R0adjusted,Nursing_CFR,Nursing_visitfraction,Ninfec =  NinfecPeople,NHImmune)
-      #cat("  NH deaths",t,Nat$deaths)
+      Nat <- NH_Attack2(R0adjusted,Nursing_CFR,Nursing_visitfraction,Ninfec =  NinfecPeople,Nalive=Nalive,NHImmune)
 
-      dNHdeaths <- StepSize * Nat$deaths  # creating periodical deaths
-      dNHImmune <- StepSize * (Nat$NewImmune - NHImmune / Nursing_LoI)
+      dNHdeaths <-  Nat$deaths  # creating periodical deaths
+      dNHImmune <-  (Nat$NewImmune - NHImmune / Nursing_LoI)
 
       # compensate background deaths and deaths by disease with new habitants from S,Sv, R, Rv
       # all Nursing homes are assumed to be always full
-      BackgroundDeaths <- StepSize * Nursing_number*Nursing_persons*Nursing_BGRate/YearDays   #including background deaths nursing homes, these are not in the normal demographics
+      BackgroundDeaths <-  Nursing_number*Nursing_persons*Nursing_BGRate/YearDays   #including background deaths nursing homes, these are not in the normal demographics
       AllNHdeaths <-  dNHdeaths + BackgroundDeaths
       Age9tot <- S[9] + Sv[9] + R[9] + Rv[9]
+
       dS[9]  <- dS[9] - S[9]/Age9tot * AllNHdeaths
       dSv[9] <- dSv[9] - Sv[9]/Age9tot * AllNHdeaths
       dR[9]  <- dR[9] - R[9]/Age9tot * AllNHdeaths
@@ -266,23 +301,23 @@ calculate_derivativVac <-function(t, x, vparameters){
     dNHImmune <-0
       }
 
-    # Single death stock for all age groups and Nursing homes
-    dD <-   StepSize * (
-      (1/(Duration_In*(1-Vac_Los_Eff))*Vin)*(CFR*(1-Vac_CFR_Eff)) +
-        (1/(Duration_Icu*(1-Vac_Los_Eff))*Vicu) *(CFR*(1-Vac_CFR_Eff)) +
-        (1/(Duration_Home*(1-Vac_Los_Eff))*Vhm) *(CFR*(1-Vac_CFR_Eff)) +
-        (Nin/Duration_In)*(CFR)+
-        (Nicu/Duration_Icu)*(CFR) +
-        (Nhm/Duration_Home)*(CFR)
-    )
-
-    # assign NH deaths over agegroup 8,9
-    dD[8] <- dD[8] + Nalive[8]/(Nalive[8]+Nalive[9])* dNHdeaths
-    dD[9] <- dD[9] + Nalive[9]/(Nalive[8]+Nalive[9])* dNHdeaths
-
-    ### Reporting indicators only calculated when in reporting period
+    ### Reporting indicators (deaths, NHdeaths, QALYs, costs) only calculated when in reporting period
 
     if (real_t > Sim_duration-Report_duration) {
+      # deaths
+      # Single death stock for all age groups and Nursing homes
+      dD <-   StepSize * (
+        (1/(Duration_In*(1-Vac_Los_Eff))*Vin)*(CFR*(1-Vac_CFR_Eff)) +
+          (1/(Duration_Icu*(1-Vac_Los_Eff))*Vicu) *(CFR*(1-Vac_CFR_Eff)) +
+          (1/(Duration_Home*(1-Vac_Los_Eff))*Vhm) *(CFR*(1-Vac_CFR_Eff)) +
+          (Nin/Duration_In)*(CFR)+
+          (Nicu/Duration_Icu)*(CFR) +
+          (Nhm/Duration_Home)*(CFR)
+      )
+            # add NH deaths over agegroup 8,9,10 (as they also move out of the susceptible groups)
+      dD[9] <- dD[9] + Nalive[9]/(Nalive[9]+Nalive[10])* dNHdeaths
+      dD[10] <- dD[10] + Nalive[10]/(Nalive[9]+Nalive[10])* dNHdeaths
+
       DayInflation <- ((1+Inflation)^(1/YearDays)) -1
       CostInflator <- (1+DayInflation)^real_t
 
@@ -294,13 +329,12 @@ calculate_derivativVac <-function(t, x, vparameters){
           (Nicu+Vicu) *Utility_Rel_ICU*Utility_Healthy/YearDays
       )/(1+Re)^(real_t/YearDays))
 
-      # assign NH QALYS over agegroup 8,9
+      # assign NH QALYS over agegroup 8,9,10
       n <- ((Nursing_persons * Nursing_number) * Nursing_utility)/YearDays
-
-      dQALY[8] <-
-        dQALY[8] + ((Nalive[8] / (Nalive[8] + Nalive[9])) * n) / (1 + Re) ^ (real_t / YearDays)
       dQALY[9] <-
-        dQALY[9] + ((Nalive[9] / (Nalive[8] + Nalive[9])) * n) / (1 + Re) ^ (real_t / YearDays)
+        dQALY[9] + ((Nalive[9] / ( Nalive[9]+ Nalive[10])) * n) / (1 + Re) ^ (real_t / YearDays)
+      dQALY[10] <-
+        dQALY[10] + ((Nalive[10] / (Nalive[9]+ Nalive[10])) * n) / (1 + Re) ^ (real_t / YearDays)
 
       # Health care costs (+ vaccination cost)
       dHC  <- StepSize * (
@@ -308,7 +342,7 @@ calculate_derivativVac <-function(t, x, vparameters){
           (Nhm+Vhm) * Cost_home +
           (Nin+Vin) * Cost_inpatient +
           (Nicu+Vicu) * Cost_ICU +
-          (dVavS+dVavR) * Cost_Vac)
+          (dV) * Cost_Vac)
         )
         /(1+Rf)^(real_t/YearDays))
 
@@ -326,6 +360,8 @@ calculate_derivativVac <-function(t, x, vparameters){
       dQALY <- rep(0,nage)
       dHC <- rep(0,nage)
       dProdLoss <- rep(0,nage)
+      dD <- rep(0,nage)
+      dNHdeaths <- 0
     }
 
     out=c(dSv,dIv,dAv,dVhm,dVin,dVicu,dRv,dS,dI,dAn,dNhm,dNin,dNicu,dR,dD,dV,dIcum,dQALY,dHC,dProdLoss,dNHdeaths,dNHImmune)
@@ -333,14 +369,14 @@ calculate_derivativVac <-function(t, x, vparameters){
   })
 }
 
-BaselineParam <- function(parameters,OSA, Scenario=0){
+BaselineParam <- function(parameters,OSA=c(0,0,0), Scenario=0){
   cat("Parse parameters","\n")
 
   lbl <- parameters[,1]
   description <-parameters[,2]
   ParaLabels <<- data.frame(lbl,description)
 
-  for(i in 3:120) {                    # assign function within loop
+  for(i in 3:123) {                    # assign function within loop
     NewValue <- parameters[i,4]
     for(j in 5:13) {
        if (!(is.na(parameters[i,j]))) {
@@ -409,31 +445,36 @@ betaCalc <- function(){
   # reverse engineer beta from the R0 and gamma
   eig = eigen(M)
   beta <<- R0*gamma/max(Re(eig$values))
-  cat(" beta",beta,"\n")
-  cat(" gamma",gamma,"\n")
-  cat(" R0",R0,"\n")
+  cat(" beta  ",beta,"\n")
+  cat(" gamma ",gamma,"\n")
+  cat(" eigen ",max(Re(eig$values)),"\n")
+  cat(" R0    ",R0,"\n")
 
   Wii    <<- 1/LoIm_Inf
   Wiv    <<- 1/LoIm_Vac
 
 }
 
-NH_Attack2 <- function(R0, cfr, VisitFraction, Ninfec, Immune) {
+#NH_Attack2(1.15,0.33,0.002,100000,0,1000)
+NH_Attack2 <- function(R0, cfr, VisitFraction, Ninfec, Nalive,Immune) {
   # persons visiting homes
   Ninfec <- as.integer(Ninfec * VisitFraction)
 
   # number homes visited
   NHv <- NH_visited(Ninfec, Nursing_number)
+  #cat("NHv : " , NHv, "\n")
+
 
   # new susceptible number nursing homes attacked
   nAttacked <- NHv * (1 - Immune / Nursing_number)
-  AR <- AR(R0, inf_period, I0 = 1, Nursing_persons)
+  ARn <- AR(R0, inf_period, I0 = 1, Nursing_persons)
 
   totalInfected <- nAttacked *
-    AR *    # attack rate estimate
+    ARn *    # attack rate estimate
     Nursing_persons                           # total infected of all nursing homes
 
   deaths <- totalInfected * cfr                # total deaths
+
 
   if (deaths < 0) {
     deaths = 0
@@ -480,9 +521,10 @@ ForRegression <- function(){
     print(x)
     df[x, ] <- c(x, NH_visited(x, 500))
   }
-  clipr::write_clip(df)
 
 }
+
+
 
 AR <- function(R0,duration,I0,N) {
   # estimates the attack rate (number of infected persons)
@@ -507,6 +549,12 @@ sir <- function(bet, gamm, S0, I0, R0, times) {
         dS <- -bet * I * S/N
         dI <-  bet * I * S/N - gamm * I
         dR <-  gamm * I
+
+        #dS <- -bet * I * S^2/N^2
+        #dI <-  bet * I * S^2/N^2 - gamm * I
+        #dR <-  gamm * I
+
+
         return(list(c(dS, dI, dR)))
       })
     }
