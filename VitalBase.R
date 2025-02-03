@@ -2,7 +2,7 @@
 #
 # An R script to solve ODE's of an SIR based model with age structure and nursing homes
 # Influenza
-# updated January 2024 for
+# updated January 2023 - February 2025 for
 #               - waning immunity
 #               - seasonal R
 #               - vacination system

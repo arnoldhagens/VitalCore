@@ -1,6 +1,6 @@
 # Vital Base Model functions
 # An R script to solve ODE's of an SIR model with age structure
-# updated January 2023 - February 2024 for
+# updated January 2023 - February 2025 for
 #               - waning immunity
 #               - seasonal R
 #               - vacination system
